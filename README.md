@@ -143,4 +143,4 @@ server {
 
 ### Creater
 
-- Fyx
+<a href="https://instagram.com/its_.mayankbhatt" target="blank"><img align="center" src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/instagram.svg" alt="mayankbhatt2989" height="30" width="40" />Mayank Bhatt</a>
