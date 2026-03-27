@@ -141,6 +141,6 @@ server {
 
 ---
 
-## License
+### Creater
 
-MIT
+- Fyx
