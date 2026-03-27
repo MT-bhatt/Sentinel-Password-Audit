@@ -1,12 +1,3 @@
-"""
-Sentinel — Password & Security Audit API  v4.0.0
-Production-ready FastAPI backend.
-
-Run:
-    pip install -r requirements.txt
-    uvicorn main:app --host 0.0.0.0 --port 8000
-"""
-
 import asyncio
 import hashlib
 import logging
@@ -31,10 +22,6 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
-
-# ─────────────────────────────────────────────
-#  CONFIG  (reads from .env automatically)
-# ─────────────────────────────────────────────
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -42,8 +29,6 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
 
-    # CORS — restrict to your domain(s) in production
-    # e.g.  ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
     allowed_origins: list[str] = ["*"]
 
     hibp_timeout: float = 6.0
@@ -59,9 +44,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# ─────────────────────────────────────────────
-#  LOGGING
-# ─────────────────────────────────────────────
 logging.basicConfig(
     level=settings.log_level.upper(),
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -69,10 +51,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sentinel")
 
-
-# ─────────────────────────────────────────────
-#  INLINE FALLBACK COMMON PASSWORDS
-# ─────────────────────────────────────────────
 _INLINE_COMMON = {
     "123456", "password", "123456789", "qwerty", "abc123",
     "111111", "password1", "iloveyou", "admin", "welcome",
@@ -94,16 +72,8 @@ def load_common_passwords() -> set[str]:
     logger.warning("common_passwords.txt not found — using inline fallback (%d entries)", len(_INLINE_COMMON))
     return set(_INLINE_COMMON)
 
-
-# ─────────────────────────────────────────────
-#  HTTP CLIENT  (shared, connection-pooled)
-# ─────────────────────────────────────────────
 _http_client: httpx.AsyncClient | None = None
 
-
-# ─────────────────────────────────────────────
-#  LIFESPAN
-# ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _http_client, COMMON_PASSWORDS
@@ -118,19 +88,11 @@ async def lifespan(app: FastAPI):
     await _http_client.aclose()
     logger.info("Sentinel API shutdown")
 
-
-# ─────────────────────────────────────────────
-#  RATE LIMITER
-# ─────────────────────────────────────────────
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[settings.rate_limit_global],
 )
 
-
-# ─────────────────────────────────────────────
-#  APP
-# ─────────────────────────────────────────────
 app = FastAPI(
     title="Sentinel — Password Audit API",
     version="4.0.0",
@@ -141,10 +103,6 @@ app = FastAPI(
 
 app.state.limiter = limiter
 
-
-# ─────────────────────────────────────────────
-#  SECURITY HEADERS MIDDLEWARE
-# ─────────────────────────────────────────────
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -157,10 +115,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
         return response
 
-
-# ─────────────────────────────────────────────
-#  REQUEST-ID / TIMING MIDDLEWARE
-# ─────────────────────────────────────────────
 class RequestTracingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         req_id = str(uuid.uuid4())[:8]
@@ -185,10 +139,6 @@ app.add_middleware(
     max_age=600,
 )
 
-
-# ─────────────────────────────────────────────
-#  MODELS
-# ─────────────────────────────────────────────
 class PasswordIn(BaseModel):
     password: str = Field(..., min_length=1, max_length=512)
 
@@ -212,11 +162,6 @@ class AuditOut(BaseModel):
     char_classes: dict[str, bool]
     issues: list[str]
     recommendations: list[str]
-
-
-# ─────────────────────────────────────────────
-#  CORE LOGIC
-# ─────────────────────────────────────────────
 
 def detect_patterns(password: str) -> list[str]:
     issues: list[str] = []
@@ -244,14 +189,14 @@ def compute_entropy(password: str) -> float:
     return round(len(password) * math.log2(charset), 2)
 
 
-_SPEED_ONLINE  = 100        # guesses/sec (throttled service)
-_SPEED_OFFLINE = 1_000_000_000  # 1B/sec (GPU offline attack on bcrypt-equivalent)
+_SPEED_ONLINE  = 100
+_SPEED_OFFLINE = 1_000_000_000
 
 def crack_time_label(bits: float, guesses_per_sec: float) -> str:
     if bits <= 0:
         return "INSTANT"
     seconds = (2 ** bits) / guesses_per_sec
-    if not math.isfinite(seconds) or seconds > 3.154e13:  # > 1M years
+    if not math.isfinite(seconds) or seconds > 3.154e13:
         return "CENTURIES"
     if seconds < 1:
         return "INSTANT"
@@ -282,8 +227,6 @@ def check_strength(password: str) -> tuple[int, str, list[str], list[str]]:
     score = 0
     issues: list[str] = []
     recommendations: list[str] = []
-
-    # Length scoring
     length = len(password)
     if length >= 16:
         score += 2
@@ -351,14 +294,8 @@ async def check_pwned(password: str) -> tuple[bool, int]:
         except Exception as exc:
             logger.warning("HIBP unexpected error: %s", exc)
             break
-
-    # On failure — degrade gracefully, don't crash the request
     return False, 0
 
-
-# ─────────────────────────────────────────────
-#  ERROR HANDLERS
-# ─────────────────────────────────────────────
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
@@ -377,10 +314,6 @@ async def generic_error_handler(request: Request, exc: Exception):
         content={"error": "internal_error", "detail": "An unexpected error occurred."},
     )
 
-
-# ─────────────────────────────────────────────
-#  ROUTES
-# ─────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
 async def root():
     return FileResponse("index.html")
@@ -435,10 +368,6 @@ async def audit(request: Request, body: PasswordIn):
         recommendations=recommendations,
     )
 
-
-# ─────────────────────────────────────────────
-#  ENTRY POINT
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
